@@ -12,8 +12,9 @@ import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedEmotion, setSelectedEmotion] = useState<EmotionType | null>(null);
+  const [selectedEmotions, setSelectedEmotions] = useState<EmotionType[]>([]);
   const [selectedSegment, setSelectedSegment] = useState<EmotionSegment | null>(null);
+  const [filterEmotion, setFilterEmotion] = useState<EmotionType | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
 
   const { job, videoUrl, startDetection, resetJob } = useEmotionDetection();
@@ -30,23 +31,24 @@ const Index = () => {
   };
 
   const handleStartAnalysis = async () => {
-    if (!selectedFile || !selectedEmotion) {
+    if (!selectedFile || selectedEmotions.length === 0) {
       toast({
         title: 'Missing information',
-        description: 'Please select a video and an emotion to detect.',
+        description: 'Please select a video and at least one emotion to detect.',
         variant: 'destructive',
       });
       return;
     }
 
-    await startDetection(selectedFile, selectedEmotion);
+    await startDetection(selectedFile, selectedEmotions);
   };
 
   const handleReset = () => {
     resetJob();
     setSelectedFile(null);
-    setSelectedEmotion(null);
+    setSelectedEmotions([]);
     setSelectedSegment(null);
+    setFilterEmotion(null);
     setUploadProgress(0);
   };
 
@@ -91,8 +93,8 @@ const Index = () => {
 
             <div className="space-y-4">
               <EmotionSelector
-                value={selectedEmotion}
-                onChange={setSelectedEmotion}
+                value={selectedEmotions}
+                onChange={setSelectedEmotions}
                 disabled={isAnalyzing}
               />
 
@@ -101,7 +103,7 @@ const Index = () => {
                 size="lg"
                 className="w-full"
                 onClick={handleStartAnalysis}
-                disabled={!selectedFile || !selectedEmotion || isAnalyzing}
+                disabled={!selectedFile || selectedEmotions.length === 0 || isAnalyzing}
               >
                 {isAnalyzing ? 'Analyzing...' : 'Start Analysis'}
               </Button>
@@ -130,8 +132,8 @@ const Index = () => {
                     videoUrl={videoUrl}
                     segment={selectedSegment}
                     segments={
-                      selectedEmotion
-                        ? job.segments.filter((s) => s.emotion === selectedEmotion)
+                      filterEmotion
+                        ? job.segments.filter((s) => s.emotion === filterEmotion)
                         : job.segments
                     }
                     onSegmentChange={setSelectedSegment}
@@ -147,7 +149,8 @@ const Index = () => {
                     totalDuration={totalDuration}
                     selectedSegment={selectedSegment}
                     onSegmentClick={setSelectedSegment}
-                    filterEmotion={selectedEmotion}
+                    filterEmotion={filterEmotion}
+                    onFilterChange={setFilterEmotion}
                   />
                 )}
               </div>

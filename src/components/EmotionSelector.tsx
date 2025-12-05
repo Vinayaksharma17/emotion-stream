@@ -1,18 +1,11 @@
 import React from 'react';
-import { ChevronDown } from 'lucide-react';
-import { EMOTIONS, EmotionType, getEmotionColor } from '@/types/emotion';
+import { EMOTIONS, EmotionType } from '@/types/emotion';
 import { cn } from '@/lib/utils';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface EmotionSelectorProps {
-  value: EmotionType | null;
-  onChange: (emotion: EmotionType) => void;
+  value: EmotionType[];
+  onChange: (emotions: EmotionType[]) => void;
   disabled?: boolean;
 }
 
@@ -21,35 +14,83 @@ const EmotionSelector: React.FC<EmotionSelectorProps> = ({
   onChange,
   disabled,
 }) => {
+  const handleToggle = (emotion: EmotionType) => {
+    if (value.includes(emotion)) {
+      onChange(value.filter((e) => e !== emotion));
+    } else {
+      onChange([...value, emotion]);
+    }
+  };
+
+  const selectAll = () => {
+    onChange(EMOTIONS.map((e) => e.value));
+  };
+
+  const clearAll = () => {
+    onChange([]);
+  };
+
   return (
-    <Select
-      value={value || undefined}
-      onValueChange={(val) => onChange(val as EmotionType)}
-      disabled={disabled}
-    >
-      <SelectTrigger className="glass h-12 px-4 text-base border-border/50 hover:border-primary/50 transition-colors">
-        <SelectValue placeholder="Select an emotion to detect" />
-      </SelectTrigger>
-      <SelectContent className="glass-strong border-border/50">
-        {EMOTIONS.map((emotion) => (
-          <SelectItem
-            key={emotion.value}
-            value={emotion.value}
-            className="cursor-pointer focus:bg-muted"
+    <div className="glass rounded-xl p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+          Select Emotions to Detect
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={selectAll}
+            disabled={disabled}
+            className="text-xs text-primary hover:text-primary/80 disabled:opacity-50"
           >
-            <div className="flex items-center gap-3">
-              <div
-                className={cn(
-                  'w-3 h-3 rounded-full',
-                  emotion.color
-                )}
+            Select All
+          </button>
+          <span className="text-muted-foreground">|</span>
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={disabled}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        {EMOTIONS.map((emotion) => {
+          const isSelected = value.includes(emotion.value);
+          return (
+            <label
+              key={emotion.value}
+              className={cn(
+                'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
+                'border border-transparent',
+                isSelected
+                  ? 'bg-muted/80 border-primary/30'
+                  : 'bg-muted/30 hover:bg-muted/50',
+                disabled && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={() => handleToggle(emotion.value)}
+                disabled={disabled}
+                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
               />
-              <span>{emotion.label}</span>
-            </div>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+              <div className={cn('w-3 h-3 rounded-full', emotion.color)} />
+              <span className="text-sm text-foreground">{emotion.label}</span>
+            </label>
+          );
+        })}
+      </div>
+      
+      {value.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {value.length} emotion{value.length !== 1 ? 's' : ''} selected
+        </p>
+      )}
+    </div>
   );
 };
 

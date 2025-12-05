@@ -11,14 +11,22 @@ serve(async (req) => {
   }
 
   try {
-    const { frameDataUrl, timestamp, targetEmotion } = await req.json();
+    const { frameDataUrl, timestamp, targetEmotions } = await req.json();
     
+    if (!frameDataUrl || timestamp === undefined || !targetEmotions) {
+      return new Response(
+        JSON.stringify({ error: "Missing required fields: frameDataUrl, timestamp, targetEmotions" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    console.log(`Analyzing frame at ${timestamp}s for emotion: ${targetEmotion}`);
+    const emotionsList = targetEmotions.join(", ");
+    console.log(`Analyzing frame at ${timestamp}s for emotions: ${emotionsList}`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -31,9 +39,9 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an expert emotion detection AI. Analyze video frames to detect human emotions. 
-            
-Your task is to identify the dominant emotion visible in the image and provide a confidence score.
+            content: `You are an expert emotion detection AI. Analyze video frames to detect human emotions.
+
+Your task is to identify ALL emotions visible in the image and provide confidence scores.
 
 The emotions you can detect are:
 - joy: happiness, smiling, laughter
@@ -45,17 +53,17 @@ The emotions you can detect are:
 - neutral: calm, relaxed, no strong emotion
 
 Respond ONLY with a JSON object in this exact format (no markdown, no explanation):
-{"emotion": "emotion_name", "confidence": 0.85, "detected": true}
+{"detectedEmotions": [{"emotion": "joy", "confidence": 0.8}, {"emotion": "surprise", "confidence": 0.3}]}
 
-If no clear human face or emotion is visible, respond with:
-{"emotion": "neutral", "confidence": 0.5, "detected": false}`
+Only include emotions with confidence > 0.1. If no clear face or emotion is visible, return:
+{"detectedEmotions": []}`
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `Analyze this video frame and detect the dominant emotion. I'm specifically looking for "${targetEmotion}" emotion, but report the actual emotion you detect.`
+                text: `Analyze this video frame and detect these emotions: ${emotionsList}. Report confidence scores for each emotion you can identify.`
               },
               {
                 type: "image_url",
@@ -66,7 +74,7 @@ If no clear human face or emotion is visible, respond with:
             ]
           }
         ],
-        max_tokens: 100,
+        max_tokens: 200,
       }),
     });
 
@@ -94,23 +102,32 @@ If no clear human face or emotion is visible, respond with:
     console.log("AI response:", content);
 
     // Parse the JSON response
-    let result;
+    let detectedEmotions: { emotion: string; confidence: number }[] = [];
+    
     try {
-      // Clean the response (remove any markdown formatting if present)
-      const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
-      result = JSON.parse(cleanedContent);
+      const cleanedContent = content.replace(/```json\n?|\n?```/g, "").trim();
+      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.detectedEmotions && Array.isArray(parsed.detectedEmotions)) {
+          detectedEmotions = parsed.detectedEmotions.filter(
+            (d: { emotion: string; confidence: number }) =>
+              targetEmotions.includes(d.emotion) && typeof d.confidence === "number"
+          );
+        }
+      }
     } catch (parseError) {
       console.error("Failed to parse AI response:", parseError);
-      result = { emotion: "neutral", confidence: 0.5, detected: false };
     }
 
-    return new Response(JSON.stringify({
+    const result = {
       timestamp,
-      emotion: result.emotion,
-      confidence: result.confidence,
-      detected: result.detected,
-      matchesTarget: result.emotion === targetEmotion && result.detected
-    }), {
+      detectedEmotions,
+    };
+
+    console.log("Returning result:", result);
+
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

@@ -8,6 +8,7 @@ interface EmotionTimelineProps {
   selectedSegment: EmotionSegment | null;
   onSegmentClick: (segment: EmotionSegment) => void;
   filterEmotion: EmotionType | null;
+  onFilterChange?: (emotion: EmotionType | null) => void;
 }
 
 const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
@@ -16,6 +17,7 @@ const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
   selectedSegment,
   onSegmentClick,
   filterEmotion,
+  onFilterChange,
 }) => {
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -90,25 +92,41 @@ const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend - clickable filters */}
       <div className="flex flex-wrap gap-3">
+        {onFilterChange && (
+          <button
+            onClick={() => onFilterChange(null)}
+            className={cn(
+              'flex items-center gap-2 px-3 py-1.5 rounded-full text-sm cursor-pointer transition-all',
+              !filterEmotion ? 'bg-primary/20 ring-1 ring-primary' : 'bg-muted/50 hover:bg-muted/70'
+            )}
+          >
+            <span className="text-foreground">All</span>
+            <span className="text-muted-foreground">({segments.length})</span>
+          </button>
+        )}
         {EMOTIONS.map((emotion) => {
           const count = segments.filter((s) => s.emotion === emotion.value).length;
           if (count === 0) return null;
 
+          const isActive = filterEmotion === emotion.value;
           return (
-            <div
+            <button
               key={emotion.value}
+              onClick={() => onFilterChange?.(isActive ? null : emotion.value)}
               className={cn(
-                'flex items-center gap-2 px-3 py-1.5 rounded-full text-sm',
-                'bg-muted/50 transition-opacity',
-                filterEmotion && filterEmotion !== emotion.value && 'opacity-40'
+                'flex items-center gap-2 px-3 py-1.5 rounded-full text-sm cursor-pointer transition-all',
+                isActive 
+                  ? 'bg-primary/20 ring-1 ring-primary' 
+                  : 'bg-muted/50 hover:bg-muted/70',
+                filterEmotion && !isActive && 'opacity-40'
               )}
             >
               <div className={cn('w-2.5 h-2.5 rounded-full', emotion.color)} />
               <span className="text-foreground">{emotion.label}</span>
               <span className="text-muted-foreground">({count})</span>
-            </div>
+            </button>
           );
         })}
       </div>
