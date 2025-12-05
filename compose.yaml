@@ -1,8 +1,30 @@
 services:
+  # ML Service for emotion detection
+  ml-service:
+    build:
+      context: ./backend/ml-service
+      dockerfile: Dockerfile
+    container_name: emotion-ml-service
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./backend/ml-service/models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - emotion-stream-network
+
   frontend:
     build:
       context: ./frontend
       dockerfile: dockerfile
+    container_name: emotion-frontend
     ports:
       - '8080:8080'
     volumes:
@@ -16,9 +38,20 @@ services:
       - ./frontend/tsconfig.app.json:/app/tsconfig.app.json
       - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
       - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/components.json:/app/components.json
       # Exclude node_modules to prevent conflicts
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - VITE_ML_SERVICE_URL=http://ml-service:8000
+    depends_on:
+      ml-service:
+        condition: service_healthy
     stdin_open: true
     tty: true
+    networks:
+      - emotion-stream-network
+
+networks:
+  emotion-stream-network:
+    driver: bridge
