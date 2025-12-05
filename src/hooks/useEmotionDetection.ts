@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { VideoJob, EmotionSegment, EmotionType } from '@/types/emotion';
+import { VideoJob, EmotionSegment, EmotionType, EMOTIONS } from '@/types/emotion';
 import { supabase } from '@/integrations/supabase/client';
 
 // Extract frames from video at specified interval
@@ -17,7 +17,7 @@ const extractFrames = async (
     const ctx = canvas.getContext('2d');
     
     video.onloadedmetadata = () => {
-      canvas.width = 640; // Resize for API efficiency
+      canvas.width = 640;
       canvas.height = 360;
       
       const duration = video.duration;
@@ -58,23 +58,20 @@ const extractFrames = async (
   });
 };
 
-// Analyze a single frame using the AI edge function
+// Analyze a single frame for all emotions
 const analyzeFrame = async (
   frameDataUrl: string, 
   timestamp: number, 
-  targetEmotion: EmotionType
+  targetEmotions: EmotionType[]
 ): Promise<{
   timestamp: number;
-  emotion: EmotionType;
-  confidence: number;
-  detected: boolean;
-  matchesTarget: boolean;
+  detectedEmotions: { emotion: EmotionType; confidence: number }[];
 }> => {
   const { data, error } = await supabase.functions.invoke('detect-emotions', {
     body: { 
       frameDataUrl, 
       timestamp, 
-      targetEmotion 
+      targetEmotions 
     }
   });
   
@@ -90,12 +87,10 @@ export const useEmotionDetection = () => {
   const [job, setJob] = useState<VideoJob | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
-  const startDetection = useCallback(async (file: File, emotion: EmotionType) => {
-    // Create object URL for video preview
+  const startDetection = useCallback(async (file: File, emotions: EmotionType[]) => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
 
-    // Initialize job
     const newJob: VideoJob = {
       id: `job-${Date.now()}`,
       status: 'uploading',
@@ -104,85 +99,103 @@ export const useEmotionDetection = () => {
     setJob(newJob);
 
     try {
-      // Simulate upload progress (file is already in memory)
+      // Simulate upload progress
       for (let i = 0; i <= 100; i += 20) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         setJob((prev) => (prev ? { ...prev, progress: i } : null));
       }
 
-      // Switch to processing
       setJob((prev) =>
         prev ? { ...prev, status: 'processing', progress: 0 } : null
       );
 
-      // Extract frames from video (every 2 seconds)
       console.log('Extracting frames from video...');
       const frames = await extractFrames(url, 2);
       console.log(`Extracted ${frames.length} frames`);
 
+      // Track segments per emotion
+      const emotionSegments: Map<EmotionType, {
+        currentStart: number | null;
+        lastTimestamp: number | null;
+        lastConfidence: number;
+      }> = new Map();
+
+      emotions.forEach((e) => {
+        emotionSegments.set(e, {
+          currentStart: null,
+          lastTimestamp: null,
+          lastConfidence: 0,
+        });
+      });
+
       const segments: EmotionSegment[] = [];
-      let currentSegmentStart: number | null = null;
-      let lastMatchingTimestamp: number | null = null;
-      let lastConfidence = 0;
 
       // Analyze each frame
       for (let i = 0; i < frames.length; i++) {
         const frame = frames[i];
-        
-        // Update progress
         const progress = Math.round(((i + 1) / frames.length) * 100);
         setJob((prev) => (prev ? { ...prev, progress } : null));
 
         try {
           console.log(`Analyzing frame ${i + 1}/${frames.length} at ${frame.timestamp}s`);
-          const result = await analyzeFrame(frame.dataUrl, frame.timestamp, emotion);
+          const result = await analyzeFrame(frame.dataUrl, frame.timestamp, emotions);
           console.log('Frame result:', result);
 
-          if (result.matchesTarget && result.confidence > 0.6) {
-            // Found matching emotion
-            if (currentSegmentStart === null) {
-              currentSegmentStart = frame.timestamp;
-            }
-            lastMatchingTimestamp = frame.timestamp;
-            lastConfidence = Math.max(lastConfidence, result.confidence);
-          } else {
-            // Not matching - close current segment if exists
-            if (currentSegmentStart !== null && lastMatchingTimestamp !== null) {
-              segments.push({
-                id: `segment-${segments.length}`,
-                emotion,
-                startTime: currentSegmentStart,
-                endTime: lastMatchingTimestamp + 2, // Add buffer
-                confidence: lastConfidence,
-              });
-              currentSegmentStart = null;
-              lastMatchingTimestamp = null;
-              lastConfidence = 0;
+          // Process each target emotion
+          for (const targetEmotion of emotions) {
+            const state = emotionSegments.get(targetEmotion)!;
+            const detected = result.detectedEmotions.find(
+              (d) => d.emotion === targetEmotion && d.confidence > 0.5
+            );
+
+            if (detected) {
+              if (state.currentStart === null) {
+                state.currentStart = frame.timestamp;
+              }
+              state.lastTimestamp = frame.timestamp;
+              state.lastConfidence = Math.max(state.lastConfidence, detected.confidence);
+            } else {
+              // Close segment if exists
+              if (state.currentStart !== null && state.lastTimestamp !== null) {
+                segments.push({
+                  id: `segment-${segments.length}`,
+                  emotion: targetEmotion,
+                  startTime: state.currentStart,
+                  endTime: state.lastTimestamp + 2,
+                  confidence: state.lastConfidence,
+                });
+                state.currentStart = null;
+                state.lastTimestamp = null;
+                state.lastConfidence = 0;
+              }
             }
           }
 
-          // Add small delay to avoid rate limiting
           await new Promise((resolve) => setTimeout(resolve, 500));
         } catch (frameError) {
           console.error(`Error analyzing frame at ${frame.timestamp}s:`, frameError);
-          // Continue with next frame
         }
       }
 
-      // Close final segment if exists
-      if (currentSegmentStart !== null && lastMatchingTimestamp !== null) {
-        segments.push({
-          id: `segment-${segments.length}`,
-          emotion,
-          startTime: currentSegmentStart,
-          endTime: lastMatchingTimestamp + 2,
-          confidence: lastConfidence,
-        });
+      // Close any remaining segments
+      for (const targetEmotion of emotions) {
+        const state = emotionSegments.get(targetEmotion)!;
+        if (state.currentStart !== null && state.lastTimestamp !== null) {
+          segments.push({
+            id: `segment-${segments.length}`,
+            emotion: targetEmotion,
+            startTime: state.currentStart,
+            endTime: state.lastTimestamp + 2,
+            confidence: state.lastConfidence,
+          });
+        }
       }
+
+      // Sort segments by start time
+      segments.sort((a, b) => a.startTime - b.startTime);
 
       console.log(`Detection complete. Found ${segments.length} segments.`);
 
-      // Complete the job
       setJob((prev) =>
         prev
           ? {
